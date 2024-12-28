@@ -1,0 +1,51 @@
+blueprint:
+  name: termostatjustering
+  description: Juster termostaten baseret på temperaturmålinger og ønsket temperatur.
+  domain: automation
+  input:
+    termometer_sensor:
+      name: Termometer
+      description: Sensoren, der måler temperaturen i rummet.
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    termostat_enhed:
+      name: Termostat
+      description: Enheden, der styrer termostatens temperaturindstilling.
+      selector:
+        entity:
+          multiple: true
+          domain: climate
+    oensket_temperatur:
+      name: Ønsket temperatur
+      description: Den ønskede temperatur, der fungerer som reference.
+      selector:
+        entity:
+          domain: input_number
+  source_url: https://github.com/username/repo  # Opdater med din egen kilde-URL
+
+mode: single
+
+trigger:
+  - platform: time_pattern
+    minutes: "/30"  # Kør hver halve time
+
+condition: []
+
+action:
+  - variables:
+      all_thermostats: !input termostat_enhed
+      room_temp_id: !input termometer_sensor
+      room_temp: "{{ states(room_temp_id) | float }}"
+      wanted_temp_id: !input oensket_temperatur
+      oensket_temp: "{{ states(wanted_temp_id) | float }}"
+  - repeat:
+      for_each: "{{ all_thermostats }}"
+      sequence: 
+        - service: climate.set_temperature
+          target:
+            entity_id: "{{repeat.item}}"
+          data:
+            temperature: >-
+              {{ (((oensket_temp + (state_attr( repeat.item, 'current_temperature') | float) - room_temp) * 2) | round(0)) / 2 }}
