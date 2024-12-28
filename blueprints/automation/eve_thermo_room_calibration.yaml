@@ -23,7 +23,7 @@ blueprint:
       selector:
         entity:
           domain: input_number
-  source_url: https://github.com/username/repo  # Opdater med din egen kilde-URL
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/eve_thermo_room_calibration.yaml  # Opdater med din egen kilde-URL
 
 mode: single
 
