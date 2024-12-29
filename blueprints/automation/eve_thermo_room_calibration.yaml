@@ -29,7 +29,7 @@ mode: single
 
 trigger:
   - platform: time_pattern
-    minutes: "/30"  # Kør hver halve time
+    minutes: "/10"  # Kør hvert tiende minut
 
 condition: []
 
