@@ -50,7 +50,7 @@ blueprint:
 mode: single
 trigger:
 - platform: time_pattern
-  minutes: /1
+  minutes: /10
 condition: 
 - condition: state
   entity_id: !input heating_main_switch
