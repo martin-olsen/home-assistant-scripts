@@ -1,0 +1,59 @@
+blueprint:
+  name: thermo door/window integration
+  description: turns off heating when a door opens. Turns it on again when it closes
+  domain: automation
+  input:
+    binary_input_sensor:
+      name: Door/window sensor
+      description: Door or window that will control heating
+      selector:
+        entity:
+          domain:
+          - binary_sensor
+          device_class:
+          - door
+    thermostats:
+      name: Thermostats
+      description: Thermostats that should be controlled by door.
+      selector:
+        entity:
+          multiple: true
+          domain:
+          - climate
+    heating_main_switch:
+      name: Main switch for heating
+      description: input boolean to turn heating on or off
+      selector: 
+        entity:
+          domain:
+          - input_boolean
+          multiple: false
+mode: single
+trigger:
+- platform: state
+  entity_id: !input binary_input_sensor
+condition: 
+- condition: state
+  entity_id: !input heating_main_switch
+  state: "on"
+action:
+  - if: 
+      - alias: door is open
+        condition: state
+        entity_id: !input binary_input_sensor
+        state: "on"
+    then:
+      repeat:
+        for_each: !input thermostats
+        sequence:
+        - service: climate.turn_off
+          target:
+            entity_id: '{{ repeat.item }}'
+    else: 
+      repeat:
+        for_each: !input thermostats
+        sequence:
+        - service: climate.turn_on
+          target:
+            entity_id: '{{ repeat.item }}'
+            
