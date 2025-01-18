@@ -28,7 +28,11 @@ blueprint:
           domain:
           - input_boolean
           multiple: false
-mode: single
+
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/thermo_door_integration.yaml
+
+mode: queued
+
 trigger:
 - platform: state
   entity_id: !input binary_input_sensor
