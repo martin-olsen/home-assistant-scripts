@@ -32,7 +32,7 @@ blueprint:
           - input_boolean
           multiple: false
 
-  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/eve_thermo_room_calibration.yaml  # Opdater med din egen kilde-URL
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/eve_thermo_room_calibration.yaml
 
 mode: single
 
