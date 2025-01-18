@@ -1,5 +1,5 @@
 blueprint:
-  name: Thermo room calibration
+  name: Thermo room calibration - multiple thermos
   description: Adjust thermo temperature based on external room temp
   domain: automation
   input:
