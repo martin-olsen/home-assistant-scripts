@@ -1,0 +1,225 @@
+blueprint:
+  name: Humidity Calculator - Outside to Indoor Temperature
+  description: Calculate what the relative humidity would be if outside air was brought to indoor temperature (useful for HVAC and comfort monitoring)
+  domain: automation
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/outdoor_indoor_humidity_cal.yaml
+  input:
+    outside_temperature_sensor:
+      name: Outside Temperature Sensor
+      description: Select the outside temperature sensor entity (should be in Celsius)
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    outside_humidity_sensor:
+      name: Outside Humidity Sensor
+      description: Select the outside relative humidity sensor entity
+      selector:
+        entity:
+          domain: sensor
+          device_class: humidity
+    target_temperature_sensor:
+      name: Target Temperature Sensor
+      description: Select the target temperature sensor (e.g., indoor temperature in Celsius)
+      selector:
+        entity:
+          domain: sensor
+          device_class: temperature
+    update_frequency:
+      name: Update Frequency
+      description: How often to recalculate (in minutes)
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: minutes
+    calculated_entity_name:
+      name: Calculated Humidity Entity Name
+      description: Name for the calculated humidity sensor (without sensor. prefix)
+      default: "calculated_indoor_humidity"
+      selector:
+        text:
+    enable_comfort_alerts:
+      name: Enable Comfort Alerts
+      description: Send notifications about calculated humidity comfort levels
+      default: false
+      selector:
+        boolean:
+    low_comfort_threshold:
+      name: Low Comfort Humidity Threshold
+      description: Below this calculated humidity level, air will be too dry (%)
+      default: 30
+      selector:
+        number:
+          min: 10
+          max: 50
+          unit_of_measurement: "%"
+    high_comfort_threshold:
+      name: High Comfort Humidity Threshold
+      description: Above this calculated humidity level, air will be too humid (%)
+      default: 60
+      selector:
+        number:
+          min: 50
+          max: 90
+          unit_of_measurement: "%"
+    notification_service:
+      name: Notification Service (Optional)
+      description: Service to send notifications to (leave empty to disable)
+      default: ""
+      selector:
+        text:
+
+variables:
+  outside_temp_sensor: !input outside_temperature_sensor
+  outside_humidity_sensor: !input outside_humidity_sensor
+  target_temp_sensor: !input target_temperature_sensor
+  entity_name: !input calculated_entity_name
+  comfort_alerts: !input enable_comfort_alerts
+  low_comfort: !input low_comfort_threshold
+  high_comfort: !input high_comfort_threshold
+  notification_service: !input notification_service
+
+trigger:
+  - platform: time_pattern
+    minutes: !input update_frequency
+  - platform: state
+    entity_id: !input outside_temperature_sensor
+  - platform: state
+    entity_id: !input outside_humidity_sensor  
+  - platform: state
+    entity_id: !input target_temperature_sensor
+
+condition:
+  - condition: template
+    value_template: "{{ states(outside_temp_sensor) not in ['unknown', 'unavailable'] }}"
+  - condition: template
+    value_template: "{{ states(outside_humidity_sensor) not in ['unknown', 'unavailable'] }}"
+  - condition: template
+    value_template: "{{ states(target_temp_sensor) not in ['unknown', 'unavailable'] }}"
+
+action:
+  - variables:
+      # Get current values
+      outside_temp: "{{ states(outside_temp_sensor) | float }}"
+      outside_humidity: "{{ states(outside_humidity_sensor) | float }}"
+      target_temp: "{{ states(target_temp_sensor) | float }}"
+      
+      # Calculate saturation vapor pressure using Magnus formula
+      # es = 6.112 * exp((17.67 * T) / (T + 243.5)) where T is in Celsius
+      outside_es: "{{ 6.112 * (2.71828 ** ((17.67 * outside_temp) / (outside_temp + 243.5))) }}"
+      target_es: "{{ 6.112 * (2.71828 ** ((17.67 * target_temp) / (target_temp + 243.5))) }}"
+      
+      # Calculate actual vapor pressure from outside conditions
+      # ea = (RH / 100) * es
+      actual_vapor_pressure: "{{ (outside_humidity / 100) * outside_es }}"
+      
+      # Calculate relative humidity at target temperature
+      # RH_new = (ea / es_target) * 100
+      calculated_humidity: "{{ ((actual_vapor_pressure / target_es) * 100) | round(1) }}"
+      
+      # Calculate absolute humidity (g/m³) for additional information
+      # AH = (ea * 1000) / (0.4615 * (T + 273.15))
+      absolute_humidity: "{{ ((actual_vapor_pressure * 1000) / (0.4615 * (target_temp + 273.15))) | round(2) }}"
+
+  # Update the calculated humidity sensor
+  - service: input_number.set_value
+    target:
+      entity_id: "input_number.{{ entity_name }}"
+    data:
+      value: "{{ calculated_humidity }}"
+    continue_on_error: true
+
+  # Create/update template sensor via mqtt (if available) or use input_number as fallback
+  - service: mqtt.publish
+    data:
+      topic: "homeassistant/sensor/{{ entity_name }}/state"
+      payload: "{{ calculated_humidity }}"
+      retain: true
+    continue_on_error: true
+
+  - service: mqtt.publish
+    data:
+      topic: "homeassistant/sensor/{{ entity_name }}/config"
+      payload: >
+        {
+          "name": "Calculated Indoor Humidity",
+          "state_topic": "homeassistant/sensor/{{ entity_name }}/state",
+          "unit_of_measurement": "%",
+          "device_class": "humidity",
+          "unique_id": "{{ entity_name }}",
+          "json_attributes_topic": "homeassistant/sensor/{{ entity_name }}/attributes"
+        }
+      retain: true
+    continue_on_error: true
+
+  - service: mqtt.publish
+    data:
+      topic: "homeassistant/sensor/{{ entity_name }}/attributes"
+      payload: >
+        {
+          "outside_temperature": {{ outside_temp }},
+          "outside_humidity": {{ outside_humidity }},
+          "target_temperature": {{ target_temp }},
+          "calculated_humidity": {{ calculated_humidity }},
+          "absolute_humidity_g_m3": {{ absolute_humidity }},
+          "calculation_method": "Magnus formula",
+          "last_updated": "{{ now().isoformat() }}"
+        }
+      retain: true
+    continue_on_error: true
+
+  # Comfort level notifications
+  - choose:
+      # Too dry alert
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ comfort_alerts }}"
+              - condition: template
+                value_template: "{{ calculated_humidity < low_comfort }}"
+              - condition: template
+                value_template: "{{ notification_service != '' }}"
+        sequence:
+          - service: "{{ notification_service }}"
+            data:
+              title: "🏜️ Air Too Dry Warning"
+              message: >
+                If outside air ({{ outside_temp }}°C, {{ outside_humidity }}%) 
+                was brought to {{ target_temp }}°C, humidity would be {{ calculated_humidity }}%
+                (below comfort threshold of {{ low_comfort }}%)
+                Consider using a humidifier.
+      
+      # Too humid alert  
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ comfort_alerts }}"
+              - condition: template
+                value_template: "{{ calculated_humidity > high_comfort }}"
+              - condition: template
+                value_template: "{{ notification_service != '' }}"
+        sequence:
+          - service: "{{ notification_service }}"
+            data:
+              title: "💧 Air Too Humid Warning"
+              message: >
+                If outside air ({{ outside_temp }}°C, {{ outside_humidity }}%) 
+                was brought to {{ target_temp }}°C, humidity would be {{ calculated_humidity }}%
+                (above comfort threshold of {{ high_comfort }}%)
+                Consider using a dehumidifier or increasing ventilation.
+
+  # Log the calculation
+  - service: system_log.write
+    data:
+      level: info
+      message: >
+        Humidity Calculation: Outside {{ outside_temp }}°C @ {{ outside_humidity }}% RH 
+        → Target {{ target_temp }}°C would result in {{ calculated_humidity }}% RH 
+        (Absolute humidity: {{ absolute_humidity }} g/m³)
+
+mode: single
+max_exceeded: silent
