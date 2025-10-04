@@ -67,7 +67,8 @@ variables:
 
 trigger:
   - platform: mqtt
-    topic: "{{ remote_topic }}/action"
+    topic: "{{ remote_topic }}"
+    value_template: "{{ value_json.action }}"
     id: remote_action
   - platform: state
     entity_id: !input cycle_timer
