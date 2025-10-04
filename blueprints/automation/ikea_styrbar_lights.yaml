@@ -9,16 +9,12 @@ blueprint:
   domain: automation
   source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_styrbar_lights.yaml
   input:
-    remote_entity:
-      name: IKEA Styrbar Remote
-      description: Select any entity from your Styrbar remote (e.g., battery sensor or identify button)
+    remote_topic:
+      name: IKEA Styrbar Remote Topic
+      description: The Zigbee2MQTT topic for your Styrbar remote (e.g., "zigbee2mqtt/ikea_styrbar_tv")
+      default: "zigbee2mqtt/ikea_styrbar_tv"
       selector:
-        entity:
-          integration: mqtt
-          domain:
-            - sensor
-            - button
-            - update
+        text:
     target_lights:
       name: Target Lights
       description: Select all lights to control
@@ -53,8 +49,6 @@ mode: restart
 max_exceeded: silent
 
 variables:
-  remote_entity: !input remote_entity
-  remote_topic: "{{ state_attr(remote_entity, 'state_topic').split('/')[0:2] | join('/') if state_attr(remote_entity, 'state_topic') else 'zigbee2mqtt/' ~ device_attr(device_id(remote_entity), 'name') }}"
   lights: !input target_lights
   timer_entity: !input cycle_timer
   counter_entity: !input cycle_counter
@@ -67,7 +61,7 @@ variables:
 
 trigger:
   - platform: mqtt
-    topic: "{{ remote_topic }}"
+    topic: !input remote_topic
     value_template: "{{ value_json.action }}"
     id: remote_action
   - platform: state
