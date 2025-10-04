@@ -1,5 +1,4 @@
 blueprint:
-  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_styrbar_lights.yaml
   name: IKEA Styrbar Light Controller with Cycling
   description: |
     Control lights with IKEA Styrbar remote via Zigbee2MQTT.
@@ -8,14 +7,13 @@ blueprint:
     - Selected light blinks when cycling
     - Returns to "all lights" mode after 2 seconds of inactivity
   domain: automation
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_styrbar_lights.yaml
   input:
-    remote:
-      name: IKEA Styrbar Remote
-      description: Select the Styrbar remote (Zigbee2MQTT MQTT device)
+    remote_topic:
+      name: IKEA Styrbar Remote Topic
+      description: The Zigbee2MQTT topic for your Styrbar remote (e.g., "zigbee2mqtt/styrbar_living_room")
       selector:
-        device:
-          integration: mqtt
-          model: Remote control (E2001/E2002)
+        text:
     target_lights:
       name: Target Lights
       description: Select all lights to control
@@ -50,6 +48,7 @@ mode: restart
 max_exceeded: silent
 
 variables:
+  remote_topic: !input remote_topic
   lights: !input target_lights
   timer_entity: !input cycle_timer
   counter_entity: !input cycle_counter
@@ -62,7 +61,7 @@ variables:
 
 trigger:
   - platform: mqtt
-    topic: "zigbee2mqtt/{{ device_attr(trigger.device_id, 'name') }}/action"
+    topic: "{{ remote_topic }}/action"
     id: remote_action
   - platform: state
     entity_id: !input cycle_timer
