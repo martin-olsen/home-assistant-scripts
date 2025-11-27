@@ -2,7 +2,6 @@ blueprint:
   name: Humidity Calculator - Outside to Indoor Temperature
   description: Calculate what the relative humidity would be if outside air was brought to indoor temperature (useful for HVAC and comfort monitoring)
   domain: automation
-  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/outdoor_indoor_humidity_cal.yaml
   input:
     outside_temperature_sensor:
       name: Outside Temperature Sensor
@@ -70,6 +69,19 @@ blueprint:
       default: ""
       selector:
         text:
+    enable_script_execution:
+      name: Enable Script Execution
+      description: Run a script on every humidity calculation update
+      default: false
+      selector:
+        boolean:
+    script_to_run:
+      name: Script to Execute (Optional)
+      description: Select the script to run on each update (script will receive calculated humidity as data)
+      default: ""
+      selector:
+        entity:
+          domain: script
 
 variables:
   outside_temp_sensor: !input outside_temperature_sensor
@@ -80,6 +92,8 @@ variables:
   low_comfort: !input low_comfort_threshold
   high_comfort: !input high_comfort_threshold
   notification_service: !input notification_service
+  script_enabled: !input enable_script_execution
+  script_entity: !input script_to_run
 
 trigger:
   - platform: time_pattern
@@ -211,6 +225,28 @@ action:
                 was brought to {{ target_temp }}°C, humidity would be {{ calculated_humidity }}%
                 (above comfort threshold of {{ high_comfort }}%)
                 Consider using a dehumidifier or increasing ventilation.
+
+  # Execute custom script if enabled
+  - choose:
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: template
+                value_template: "{{ script_enabled }}"
+              - condition: template
+                value_template: "{{ script_entity != '' }}"
+        sequence:
+          - service: script.turn_on
+            target:
+              entity_id: "{{ script_entity }}"
+            data:
+              variables:
+                calculated_humidity: "{{ calculated_humidity }}"
+                outside_temperature: "{{ outside_temp }}"
+                outside_humidity: "{{ outside_humidity }}"
+                target_temperature: "{{ target_temp }}"
+                absolute_humidity: "{{ absolute_humidity }}"
+                timestamp: "{{ now().isoformat() }}"
 
   # Log the calculation
   - service: system_log.write

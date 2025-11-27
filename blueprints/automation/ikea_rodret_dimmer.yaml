@@ -1,0 +1,108 @@
+blueprint:
+  name: IKEA Rodret Dimmer Control
+  description: Control lights with IKEA Rodret dimmer via zigbee2mqtt
+  domain: automation
+  input:
+    remote:
+      name: Rodret Remote
+      description: Select the IKEA Rodret remote
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+    light_entity:
+      name: Light
+      description: Select the light to control
+      selector:
+        entity:
+          filter:
+            - domain: light
+    brightness_step:
+      name: Brightness Step
+      description: Percentage to increase/decrease brightness per step
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 25
+          step: 1
+          unit_of_measurement: "%"
+    step_delay:
+      name: Step Delay
+      description: Delay between brightness steps in milliseconds
+      default: 200
+      selector:
+        number:
+          min: 50
+          max: 1000
+          step: 50
+          unit_of_measurement: "ms"
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: state
+    entity_id: !input remote
+    attribute: action
+
+variables:
+  light: !input light_entity
+  step_pct: !input brightness_step
+  delay_ms: !input step_delay
+
+action:
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.action == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ light }}"
+      
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.action == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: "{{ light }}"
+      
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.action == 'brightness_move_up' }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ repeat.index < 100 }}"
+                - condition: template
+                  value_template: "{{ state_attr(trigger.entity_id, 'action') == 'brightness_move_up' }}"
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ light }}"
+                  data:
+                    brightness_step_pct: "{{ step_pct }}"
+                - delay:
+                    milliseconds: "{{ delay_ms }}"
+      
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.to_state.attributes.action == 'brightness_move_down' }}"
+        sequence:
+          - repeat:
+              while:
+                - condition: template
+                  value_template: "{{ repeat.index < 100 }}"
+                - condition: template
+                  value_template: "{{ state_attr(trigger.entity_id, 'action') == 'brightness_move_down' }}"
+              sequence:
+                - service: light.turn_on
+                  target:
+                    entity_id: "{{ light }}"
+                  data:
+                    brightness_step_pct: "{{ step_pct * -1 }}"
+                - delay:
+                    milliseconds: "{{ delay_ms }}"
