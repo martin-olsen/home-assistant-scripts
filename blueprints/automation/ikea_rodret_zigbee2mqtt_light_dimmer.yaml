@@ -1,22 +1,24 @@
 blueprint:
-  name: IKEA Rodret for Hue Light (zigbee2mqtt)
-  description: Control Hue lights with IKEA Rodret dimmer using native brightness_move commands
+  name: IKEA Rodret Dimmer for zigbee2mqtt Lights
+  description: Control lights with IKEA Rodret dimmer using native brightness_move commands (works with Hue, IKEA, and other lights that support brightness_move)
   domain: automation
-    source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/rodret_for_hue.yaml
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_rodret_zigbee2mqtt_light_dimmer.yaml
   input:
     rodret_device:
       name: Rodret Device
-      description: Select any entity from your IKEA Rodret device
+      description: Select any entity from your IKEA Rodret dimmer (battery, voltage, or identify sensor)
+      selector:
+        device:
+          integration: mqtt
+          manufacturer: IKEA
+          model: RODRET wireless dimmer/power switch
+    light_entity:
+      name: Light
+      description: Select your light entity (must support brightness_move command via zigbee2mqtt)
       selector:
         entity:
-          filter:
-            - integration: mqtt
+          domain: light
           integration: mqtt
-    hue_light:
-      name: Hue Light
-      description: Enter the zigbee2mqtt friendly name of your Hue light (e.g., "LivingRoomLight")
-      selector:
-        text:
     brightness_move_rate:
       name: Brightness Move Rate
       description: Speed of brightness change (units per second, 1-255)
@@ -35,10 +37,13 @@ trigger:
     topic: zigbee2mqtt/+/action
 
 variables:
-  rodret_entity: !input rodret_device
-  hue_friendly_name: !input hue_light
+  rodret_device_id: !input rodret_device
+  light_entity: !input light_entity
   move_rate: !input brightness_move_rate
-  mqtt_device_name: "{{ states[rodret_entity].attributes.friendly_name.split(' ')[0] if rodret_entity in states else '' }}"
+  rodret_entities: "{{ device_entities(rodret_device_id) }}"
+  rodret_entity: "{{ rodret_entities | select('search', 'battery|voltage|identify') | first }}"
+  mqtt_device_name: "{{ state_attr(rodret_entity, 'friendly_name').split(' ')[0] if rodret_entity else '' }}"
+  light_friendly_name: "{{ state_attr(light_entity, 'friendly_name') }}"
 
 condition:
   - condition: template
@@ -53,7 +58,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
               payload: '{"state": "ON"}'
       
       # Turn light OFF
@@ -63,7 +68,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
               payload: '{"state": "OFF"}'
       
       # Start increasing brightness
@@ -73,7 +78,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
               payload: '{"brightness_move": {{ move_rate }} }'
       
       # Start decreasing brightness
@@ -83,7 +88,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
               payload: '{"brightness_move": -{{ move_rate }} }'
       
       # Stop brightness change
@@ -93,5 +98,5 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
               payload: '{"brightness_move": 0}'
