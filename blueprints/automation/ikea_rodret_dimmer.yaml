@@ -3,13 +3,14 @@ blueprint:
   description: Control lights with IKEA Rodret dimmer via zigbee2mqtt
   domain: automation
   input:
-    remote:
-      name: Rodret Remote
-      description: Select the IKEA Rodret remote
+    rodret_device:
+      name: Rodret Device
+      description: Select any entity from your IKEA Rodret device
       selector:
         entity:
           filter:
             - integration: mqtt
+          integration: mqtt
     light_entity:
       name: Light
       description: Select the light to control
@@ -30,10 +31,10 @@ blueprint:
     step_delay:
       name: Step Delay
       description: Delay between brightness steps in milliseconds
-      default: 200
+      default: 250
       selector:
         number:
-          min: 50
+          min: 100
           max: 1000
           step: 50
           unit_of_measurement: "ms"
@@ -42,20 +43,25 @@ mode: restart
 max_exceeded: silent
 
 trigger:
-  - platform: state
-    entity_id: !input remote
-    attribute: action
+  - platform: mqtt
+    topic: zigbee2mqtt/+/action
 
 variables:
   light: !input light_entity
   step_pct: !input brightness_step
   delay_ms: !input step_delay
+  rodret_entity: !input rodret_device
+  mqtt_device_name: "{{ states[rodret_entity].attributes.friendly_name.split(' ')[0] if rodret_entity in states else '' }}"
+
+condition:
+  - condition: template
+    value_template: "{{ trigger.topic.split('/')[1] == mqtt_device_name }}"
 
 action:
   - choose:
       - conditions:
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.action == 'on' }}"
+            value_template: "{{ trigger.payload == 'on' }}"
         sequence:
           - service: light.turn_on
             target:
@@ -63,7 +69,7 @@ action:
       
       - conditions:
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.action == 'off' }}"
+            value_template: "{{ trigger.payload == 'off' }}"
         sequence:
           - service: light.turn_off
             target:
@@ -71,15 +77,12 @@ action:
       
       - conditions:
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.action == 'brightness_move_up' }}"
+            value_template: "{{ trigger.payload == 'brightness_move_up' }}"
         sequence:
           - repeat:
-              while:
-                - condition: template
-                  value_template: "{{ repeat.index < 100 }}"
-                - condition: template
-                  value_template: "{{ state_attr(trigger.entity_id, 'action') == 'brightness_move_up' }}"
               sequence:
+                - condition: template
+                  value_template: "{{ state_attr(light, 'brightness') | int(0) < 255 }}"
                 - service: light.turn_on
                   target:
                     entity_id: "{{ light }}"
@@ -87,18 +90,18 @@ action:
                     brightness_step_pct: "{{ step_pct }}"
                 - delay:
                     milliseconds: "{{ delay_ms }}"
+              until:
+                - condition: template
+                  value_template: "{{ false }}"
       
       - conditions:
           - condition: template
-            value_template: "{{ trigger.to_state.attributes.action == 'brightness_move_down' }}"
+            value_template: "{{ trigger.payload == 'brightness_move_down' }}"
         sequence:
           - repeat:
-              while:
-                - condition: template
-                  value_template: "{{ repeat.index < 100 }}"
-                - condition: template
-                  value_template: "{{ state_attr(trigger.entity_id, 'action') == 'brightness_move_down' }}"
               sequence:
+                - condition: template
+                  value_template: "{{ state_attr(light, 'brightness') | int(255) > 1 }}"
                 - service: light.turn_on
                   target:
                     entity_id: "{{ light }}"
@@ -106,3 +109,13 @@ action:
                     brightness_step_pct: "{{ step_pct * -1 }}"
                 - delay:
                     milliseconds: "{{ delay_ms }}"
+              until:
+                - condition: template
+                  value_template: "{{ false }}"
+      
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_stop' }}"
+        sequence:
+          - delay:
+              milliseconds: 1

@@ -1,0 +1,97 @@
+blueprint:
+  name: IKEA Rodret for Hue Light (zigbee2mqtt)
+  description: Control Hue lights with IKEA Rodret dimmer using native brightness_move commands
+  domain: automation
+    source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/rodret_for_hue.yaml
+  input:
+    rodret_device:
+      name: Rodret Device
+      description: Select any entity from your IKEA Rodret device
+      selector:
+        entity:
+          filter:
+            - integration: mqtt
+          integration: mqtt
+    hue_light:
+      name: Hue Light
+      description: Enter the zigbee2mqtt friendly name of your Hue light (e.g., "LivingRoomLight")
+      selector:
+        text:
+    brightness_move_rate:
+      name: Brightness Move Rate
+      description: Speed of brightness change (units per second, 1-255)
+      default: 50
+      selector:
+        number:
+          min: 10
+          max: 255
+          step: 10
+
+mode: restart
+max_exceeded: silent
+
+trigger:
+  - platform: mqtt
+    topic: zigbee2mqtt/+/action
+
+variables:
+  rodret_entity: !input rodret_device
+  hue_friendly_name: !input hue_light
+  move_rate: !input brightness_move_rate
+  mqtt_device_name: "{{ states[rodret_entity].attributes.friendly_name.split(' ')[0] if rodret_entity in states else '' }}"
+
+condition:
+  - condition: template
+    value_template: "{{ trigger.topic.split('/')[1] == mqtt_device_name }}"
+
+action:
+  - choose:
+      # Turn light ON
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'on' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              payload: '{"state": "ON"}'
+      
+      # Turn light OFF
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'off' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              payload: '{"state": "OFF"}'
+      
+      # Start increasing brightness
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_move_up' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              payload: '{"brightness_move": {{ move_rate }} }'
+      
+      # Start decreasing brightness
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_move_down' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              payload: '{"brightness_move": -{{ move_rate }} }'
+      
+      # Stop brightness change
+      - conditions:
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_stop' }}"
+        sequence:
+          - service: mqtt.publish
+            data:
+              topic: "zigbee2mqtt/{{ hue_friendly_name }}/set"
+              payload: '{"brightness_move": 0}'
