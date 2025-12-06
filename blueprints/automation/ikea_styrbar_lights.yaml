@@ -9,18 +9,21 @@ blueprint:
   domain: automation
   source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_styrbar_lights.yaml
   input:
-    remote_topic:
-      name: IKEA Styrbar Remote Topic
-      description: The Zigbee2MQTT topic for your Styrbar remote (e.g., "zigbee2mqtt/ikea_styrbar_tv")
-      default: "zigbee2mqtt/ikea_styrbar_tv"
+    styrbar_device:
+      name: Styrbar Device
+      description: Select your IKEA Styrbar remote
       selector:
-        text:
+        device:
+          integration: mqtt
+          manufacturer: IKEA
+          model: STYRBAR remote control
     target_lights:
       name: Target Lights
       description: Select all lights to control
       selector:
         entity:
           domain: light
+          integration: mqtt
           multiple: true
     cycle_timer:
       name: Cycle Timer Helper
@@ -44,30 +47,48 @@ blueprint:
           max: 10
           step: 1
           unit_of_measurement: seconds
+    brightness_move_rate:
+      name: Brightness Move Rate
+      description: Speed of brightness change (units per second, 1-255)
+      default: 80
+      selector:
+        number:
+          min: 10
+          max: 255
+          step: 10
 
 mode: restart
 max_exceeded: silent
 
 variables:
+  styrbar_device_id: !input styrbar_device
   lights: !input target_lights
   timer_entity: !input cycle_timer
   counter_entity: !input cycle_counter
   timeout_seconds: !input cycle_timeout
+  move_rate: !input brightness_move_rate
+  styrbar_entities: "{{ device_entities(styrbar_device_id) }}"
+  styrbar_entity: "{{ styrbar_entities | select('search', 'battery|voltage|identify') | first }}"
+  mqtt_device_name: "{{ state_attr(styrbar_entity, 'friendly_name').split(' ')[0] if styrbar_entity else '' }}"
+  light_mqtt_names: "{{ lights | map('replace', 'light.', '') | list }}"
   num_lights: "{{ lights | length }}"
   timer_active: "{{ states(timer_entity) == 'active' }}"
   current_idx: "{{ states(counter_entity) | int }}"
   current_light: "{{ lights[current_idx % num_lights] if current_idx > 0 and num_lights > 0 else none }}"
+  current_light_mqtt: "{{ light_mqtt_names[current_idx % num_lights] if current_idx > 0 and num_lights > 0 else none }}"
   all_mode: "{{ current_idx == 0 or not timer_active }}"
 
 trigger:
   - platform: mqtt
-    topic: !input remote_topic
-    value_template: "{{ value_json.action }}"
-    id: remote_action
+    topic: zigbee2mqtt/+/action
   - platform: state
     entity_id: !input cycle_timer
     to: idle
     id: timer_expired
+
+condition:
+  - condition: template
+    value_template: "{{ trigger.topic.split('/')[1] == mqtt_device_name or trigger.id == 'timer_expired' }}"
 
 action:
   - choose:
@@ -79,89 +100,113 @@ action:
           - service: counter.reset
             target:
               entity_id: "{{ counter_entity }}"
-          - service: light.turn_on
-            target:
-              entity_id: "{{ lights }}"
-            data:
-              flash: short
+          - repeat:
+              for_each: "{{ light_mqtt_names }}"
+              sequence:
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                    payload: '{"effect": "blink"}'
 
       # ON Button - Turn on all lights
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'on' }}"
+            value_template: "{{ trigger.payload == 'on' }}"
         sequence:
-          - service: light.turn_on
-            target:
-              entity_id: "{{ lights }}"
+          - repeat:
+              for_each: "{{ light_mqtt_names }}"
+              sequence:
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                    payload: '{"state": "ON"}'
 
       # OFF Button - Turn off all lights
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'off' }}"
+            value_template: "{{ trigger.payload == 'off' }}"
         sequence:
-          - service: light.turn_off
-            target:
-              entity_id: "{{ lights }}"
+          - repeat:
+              for_each: "{{ light_mqtt_names }}"
+              sequence:
+                - service: mqtt.publish
+                  data:
+                    topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                    payload: '{"state": "OFF"}'
 
       # BRIGHTNESS UP - Control all or selected light
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'brightness_move_up' }}"
+            value_template: "{{ trigger.payload == 'brightness_move_up' }}"
         sequence:
-          - repeat:
-              while:
-                - condition: template
-                  value_template: "{{ repeat.index < 100 }}"
-              sequence:
-                - service: light.turn_on
-                  target:
-                    entity_id: "{{ lights if all_mode else [current_light] }}"
-                  data:
-                    brightness_step_pct: 3
-                - delay:
-                    milliseconds: 100
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ all_mode }}"
+                sequence:
+                  - repeat:
+                      for_each: "{{ light_mqtt_names }}"
+                      sequence:
+                        - service: mqtt.publish
+                          data:
+                            topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                            payload: '{"brightness_move": {{ move_rate }} }'
+            default:
+              - service: mqtt.publish
+                data:
+                  topic: "zigbee2mqtt/{{ current_light_mqtt }}/set"
+                  payload: '{"brightness_move": {{ move_rate }} }'
 
       # BRIGHTNESS DOWN - Control all or selected light
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'brightness_move_down' }}"
+            value_template: "{{ trigger.payload == 'brightness_move_down' }}"
         sequence:
-          - repeat:
-              while:
-                - condition: template
-                  value_template: "{{ repeat.index < 100 }}"
-              sequence:
-                - service: light.turn_on
-                  target:
-                    entity_id: "{{ lights if all_mode else [current_light] }}"
-                  data:
-                    brightness_step_pct: -3
-                - delay:
-                    milliseconds: 100
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ all_mode }}"
+                sequence:
+                  - repeat:
+                      for_each: "{{ light_mqtt_names }}"
+                      sequence:
+                        - service: mqtt.publish
+                          data:
+                            topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                            payload: '{"brightness_move": -{{ move_rate }} }'
+            default:
+              - service: mqtt.publish
+                data:
+                  topic: "zigbee2mqtt/{{ current_light_mqtt }}/set"
+                  payload: '{"brightness_move": -{{ move_rate }} }'
 
       # BRIGHTNESS STOP - Stop brightness changes
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'brightness_stop' }}"
+            value_template: "{{ trigger.payload == 'brightness_stop' }}"
         sequence:
-          - stop: "Brightness adjustment stopped"
+          - choose:
+              - conditions:
+                  - condition: template
+                    value_template: "{{ all_mode }}"
+                sequence:
+                  - repeat:
+                      for_each: "{{ light_mqtt_names }}"
+                      sequence:
+                        - service: mqtt.publish
+                          data:
+                            topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                            payload: '{"brightness_move": 0}'
+            default:
+              - service: mqtt.publish
+                data:
+                  topic: "zigbee2mqtt/{{ current_light_mqtt }}/set"
+                  payload: '{"brightness_move": 0}'
 
       # ARROW RIGHT - Cycle to next light
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'arrow_right_click' }}"
+            value_template: "{{ trigger.payload == 'arrow_right_click' }}"
         sequence:
           # Increment counter
           - service: counter.increment
@@ -188,40 +233,23 @@ action:
                     target:
                       entity_id: "{{ timer_entity }}"
                   - repeat:
-                      count: 3
+                      for_each: "{{ light_mqtt_names }}"
                       sequence:
-                        - service: light.turn_off
-                          target:
-                            entity_id: "{{ lights }}"
-                        - delay:
-                            milliseconds: 200
-                        - service: light.turn_on
-                          target:
-                            entity_id: "{{ lights }}"
-                        - delay:
-                            milliseconds: 200
+                        - service: mqtt.publish
+                          data:
+                            topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                            payload: '{"effect": "blink"}'
             default:
               # Blink selected light
-              - repeat:
-                  count: 2
-                  sequence:
-                    - service: light.turn_off
-                      target:
-                        entity_id: "{{ lights[new_idx % num_lights] }}"
-                    - delay:
-                        milliseconds: 200
-                    - service: light.turn_on
-                      target:
-                        entity_id: "{{ lights[new_idx % num_lights] }}"
-                    - delay:
-                        milliseconds: 200
+              - service: mqtt.publish
+                data:
+                  topic: "zigbee2mqtt/{{ light_mqtt_names[new_idx % num_lights] }}/set"
+                  payload: '{"effect": "blink"}'
 
       # ARROW LEFT - Cycle to previous light
       - conditions:
-          - condition: trigger
-            id: remote_action
           - condition: template
-            value_template: "{{ trigger.payload_json.action == 'arrow_left_click' }}"
+            value_template: "{{ trigger.payload == 'arrow_left_click' }}"
         sequence:
           # Decrement counter (or increment to simulate going backwards)
           - service: counter.increment
@@ -256,30 +284,15 @@ action:
                     target:
                       entity_id: "{{ timer_entity }}"
                   - repeat:
-                      count: 3
+                      for_each: "{{ light_mqtt_names }}"
                       sequence:
-                        - service: light.turn_off
-                          target:
-                            entity_id: "{{ lights }}"
-                        - delay:
-                            milliseconds: 200
-                        - service: light.turn_on
-                          target:
-                            entity_id: "{{ lights }}"
-                        - delay:
-                            milliseconds: 200
+                        - service: mqtt.publish
+                          data:
+                            topic: "zigbee2mqtt/{{ repeat.item }}/set"
+                            payload: '{"effect": "blink"}'
             default:
               # Blink selected light
-              - repeat:
-                  count: 2
-                  sequence:
-                    - service: light.turn_off
-                      target:
-                        entity_id: "{{ lights[new_idx % num_lights] }}"
-                    - delay:
-                        milliseconds: 200
-                    - service: light.turn_on
-                      target:
-                        entity_id: "{{ lights[new_idx % num_lights] }}"
-                    - delay:
-                        milliseconds: 200
+              - service: mqtt.publish
+                data:
+                  topic: "zigbee2mqtt/{{ light_mqtt_names[new_idx % num_lights] }}/set"
+                  payload: '{"effect": "blink"}'
