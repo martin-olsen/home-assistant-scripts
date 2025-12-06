@@ -69,7 +69,7 @@ variables:
   move_rate: !input brightness_move_rate
   styrbar_entities: "{{ device_entities(styrbar_device_id) }}"
   styrbar_entity: "{{ styrbar_entities | select('search', 'battery|voltage|identify') | first }}"
-  mqtt_device_name: "{{ state_attr(styrbar_entity, 'friendly_name').split(' ')[0] if styrbar_entity else '' }}"
+  mqtt_device_name: "{{ styrbar_entity.split('.')[1].replace('_battery', '').replace('_voltage', '').replace('_identify', '') }}"
   light_mqtt_names: "{{ lights | map('replace', 'light.', '') | list }}"
   num_lights: "{{ lights | length }}"
   timer_active: "{{ states(timer_entity) == 'active' }}"
@@ -87,8 +87,12 @@ trigger:
     id: timer_expired
 
 condition:
-  - condition: template
-    value_template: "{{ trigger.topic.split('/')[1] == mqtt_device_name or trigger.id == 'timer_expired' }}"
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: timer_expired
+      - condition: template
+        value_template: "{{ trigger.topic.split('/')[1] == mqtt_device_name }}"
 
 action:
   - choose:
