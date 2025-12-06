@@ -22,7 +22,7 @@ blueprint:
     brightness_move_rate:
       name: Brightness Move Rate
       description: Speed of brightness change (units per second, 1-255)
-      default: 50
+      default: 80
       selector:
         number:
           min: 10
