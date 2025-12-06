@@ -43,7 +43,7 @@ variables:
   rodret_entities: "{{ device_entities(rodret_device_id) }}"
   rodret_entity: "{{ rodret_entities | select('search', 'battery|voltage|identify') | first }}"
   mqtt_device_name: "{{ state_attr(rodret_entity, 'friendly_name').split(' ')[0] if rodret_entity else '' }}"
-  light_friendly_name: "{{ state_attr(light_entity, 'friendly_name') }}"
+  light_mqtt_name: "{{ light_entity.split('.')[1] }}"
 
 condition:
   - condition: template
@@ -58,7 +58,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_mqtt_name }}/set"
               payload: '{"state": "ON"}'
       
       # Turn light OFF
@@ -68,7 +68,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_mqtt_name }}/set"
               payload: '{"state": "OFF"}'
       
       # Start increasing brightness
@@ -78,7 +78,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_mqtt_name }}/set"
               payload: '{"brightness_move": {{ move_rate }} }'
       
       # Start decreasing brightness
@@ -88,7 +88,7 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_mqtt_name }}/set"
               payload: '{"brightness_move": -{{ move_rate }} }'
       
       # Stop brightness change
@@ -98,5 +98,5 @@ action:
         sequence:
           - service: mqtt.publish
             data:
-              topic: "zigbee2mqtt/{{ light_friendly_name }}/set"
+              topic: "zigbee2mqtt/{{ light_mqtt_name }}/set"
               payload: '{"brightness_move": 0}'
