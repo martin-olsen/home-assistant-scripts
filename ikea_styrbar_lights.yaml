@@ -1,0 +1,272 @@
+blueprint:
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/ikea_styrbar_lights.yaml
+  name: IKEA Styrbar Light Controller with Cycling
+  description: |
+    Control lights with IKEA Styrbar remote via Zigbee2MQTT.
+    - On/Off/Brightness controls all lights by default
+    - Arrow keys cycle through individual lights (2 second timeout)
+    - Selected light blinks when cycling
+    - Returns to "all lights" mode after 2 seconds of inactivity
+  domain: automation
+  input:
+    remote:
+      name: IKEA Styrbar Remote
+      description: Select the Styrbar remote (Zigbee2MQTT MQTT device)
+      selector:
+        device:
+          integration: mqtt
+          model: Remote control (E2001/E2002)
+    target_lights:
+      name: Target Lights
+      description: Select all lights to control
+      selector:
+        entity:
+          domain: light
+          multiple: true
+    cycle_timer:
+      name: Cycle Timer Helper
+      description: Timer helper for tracking cycle timeout (create one with 2 second duration)
+      selector:
+        entity:
+          domain: timer
+    cycle_counter:
+      name: Cycle Counter Helper
+      description: Counter helper to track current light index (create a counter helper)
+      selector:
+        entity:
+          domain: counter
+    cycle_timeout:
+      name: Cycle Timeout (seconds)
+      description: Time in seconds before returning to "all lights" mode
+      default: 2
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1
+          unit_of_measurement: seconds
+
+mode: restart
+max_exceeded: silent
+
+variables:
+  lights: !input target_lights
+  timer_entity: !input cycle_timer
+  counter_entity: !input cycle_counter
+  timeout_seconds: !input cycle_timeout
+  num_lights: "{{ lights | length }}"
+  timer_active: "{{ states(timer_entity) == 'active' }}"
+  current_idx: "{{ states(counter_entity) | int }}"
+  current_light: "{{ lights[current_idx % num_lights] if current_idx > 0 and num_lights > 0 else none }}"
+  all_mode: "{{ current_idx == 0 or not timer_active }}"
+
+trigger:
+  - platform: mqtt
+    topic: "zigbee2mqtt/{{ device_attr(trigger.device_id, 'name') }}/action"
+    id: remote_action
+  - platform: state
+    entity_id: !input cycle_timer
+    to: idle
+    id: timer_expired
+
+action:
+  - choose:
+      # Timer expired - reset to all lights mode
+      - conditions:
+          - condition: trigger
+            id: timer_expired
+        sequence:
+          - service: counter.reset
+            target:
+              entity_id: "{{ counter_entity }}"
+          - service: light.turn_on
+            target:
+              entity_id: "{{ lights }}"
+            data:
+              flash: short
+
+      # ON Button - Turn on all lights
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'on' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ lights }}"
+
+      # OFF Button - Turn off all lights
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target:
+              entity_id: "{{ lights }}"
+
+      # BRIGHTNESS UP - Control all or selected light
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_move_up' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ lights if all_mode else [current_light] }}"
+            data:
+              brightness_step_pct: 10
+
+      # BRIGHTNESS DOWN - Control all or selected light
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_move_down' }}"
+        sequence:
+          - service: light.turn_on
+            target:
+              entity_id: "{{ lights if all_mode else [current_light] }}"
+            data:
+              brightness_step_pct: -10
+
+      # BRIGHTNESS STOP - Stop brightness changes
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'brightness_stop' }}"
+        sequence:
+          - delay:
+              milliseconds: 1
+
+      # ARROW RIGHT - Cycle to next light
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'arrow_right_click' }}"
+        sequence:
+          # Increment counter
+          - service: counter.increment
+            target:
+              entity_id: "{{ counter_entity }}"
+          # Restart timer
+          - service: timer.start
+            target:
+              entity_id: "{{ timer_entity }}"
+            data:
+              duration: "{{ '00:00:' ~ '%02d' | format(timeout_seconds | int) }}"
+          - variables:
+              new_idx: "{{ (current_idx + 1) % (num_lights + 1) }}"
+          - choose:
+              # Cycle complete - reset and blink all lights
+              - conditions:
+                  - condition: template
+                    value_template: "{{ new_idx == 0 }}"
+                sequence:
+                  - service: counter.reset
+                    target:
+                      entity_id: "{{ counter_entity }}"
+                  - service: timer.cancel
+                    target:
+                      entity_id: "{{ timer_entity }}"
+                  - repeat:
+                      count: 3
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ lights }}"
+                        - delay:
+                            milliseconds: 200
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ lights }}"
+                        - delay:
+                            milliseconds: 200
+            default:
+              # Blink selected light
+              - repeat:
+                  count: 2
+                  sequence:
+                    - service: light.turn_off
+                      target:
+                        entity_id: "{{ lights[new_idx % num_lights] }}"
+                    - delay:
+                        milliseconds: 200
+                    - service: light.turn_on
+                      target:
+                        entity_id: "{{ lights[new_idx % num_lights] }}"
+                    - delay:
+                        milliseconds: 200
+
+      # ARROW LEFT - Cycle to previous light
+      - conditions:
+          - condition: trigger
+            id: remote_action
+          - condition: template
+            value_template: "{{ trigger.payload == 'arrow_left_click' }}"
+        sequence:
+          # Decrement counter (or increment to simulate going backwards)
+          - service: counter.increment
+            target:
+              entity_id: "{{ counter_entity }}"
+          # Restart timer
+          - service: timer.start
+            target:
+              entity_id: "{{ timer_entity }}"
+            data:
+              duration: "{{ '00:00:' ~ '%02d' | format(timeout_seconds | int) }}"
+          - variables:
+              # For left, we go backwards by adding (num_lights) to simulate reverse
+              new_idx: "{{ (current_idx + num_lights) % (num_lights + 1) if current_idx > 0 else num_lights }}"
+          # Manually set counter to new position
+          - service: counter.reset
+            target:
+              entity_id: "{{ counter_entity }}"
+          - repeat:
+              count: "{{ new_idx }}"
+              sequence:
+                - service: counter.increment
+                  target:
+                    entity_id: "{{ counter_entity }}"
+          - choose:
+              # Cycle complete - reset and blink all lights
+              - conditions:
+                  - condition: template
+                    value_template: "{{ new_idx == 0 }}"
+                sequence:
+                  - service: timer.cancel
+                    target:
+                      entity_id: "{{ timer_entity }}"
+                  - repeat:
+                      count: 3
+                      sequence:
+                        - service: light.turn_off
+                          target:
+                            entity_id: "{{ lights }}"
+                        - delay:
+                            milliseconds: 200
+                        - service: light.turn_on
+                          target:
+                            entity_id: "{{ lights }}"
+                        - delay:
+                            milliseconds: 200
+            default:
+              # Blink selected light
+              - repeat:
+                  count: 2
+                  sequence:
+                    - service: light.turn_off
+                      target:
+                        entity_id: "{{ lights[new_idx % num_lights] }}"
+                    - delay:
+                        milliseconds: 200
+                    - service: light.turn_on
+                      target:
+                        entity_id: "{{ lights[new_idx % num_lights] }}"
+                    - delay:
+                        milliseconds: 200
