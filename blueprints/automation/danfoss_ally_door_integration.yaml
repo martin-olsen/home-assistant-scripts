@@ -1,0 +1,76 @@
+blueprint:
+  name: Danfoss Ally - door/window integration
+  description: >
+    Turns off a Danfoss Ally thermostat when a door or window opens, and turns
+    it back on (heat mode) when it closes — but only if the main heating switch
+    is on.
+
+    Unlike the generic thermostat blueprint this uses `climate.set_hvac_mode`
+    with explicit `off` / `heat` modes, because `climate.turn_on` is not
+    supported by the Danfoss Ally integration.
+  domain: automation
+  input:
+    binary_input_sensor:
+      name: Door/window sensor
+      description: The door or window sensor that controls heating.
+      selector:
+        entity:
+          domain:
+          - binary_sensor
+          device_class:
+          - door
+          - window
+    thermostats:
+      name: Danfoss Ally thermostats
+      description: One or more Danfoss Ally climate entities to control.
+      selector:
+        entity:
+          multiple: true
+          domain:
+          - climate
+    heating_main_switch:
+      name: Main heating switch
+      description: input_boolean that enables/disables heating globally.
+      selector:
+        entity:
+          domain:
+          - input_boolean
+          multiple: false
+
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/danfoss_ally_door_integration.yaml
+
+mode: queued
+
+trigger:
+  - platform: state
+    entity_id: !input binary_input_sensor
+
+condition:
+  - condition: state
+    entity_id: !input heating_main_switch
+    state: "on"
+
+action:
+  - if:
+      - alias: door/window is open
+        condition: state
+        entity_id: !input binary_input_sensor
+        state: "on"
+    then:
+      - repeat:
+          for_each: !input thermostats
+          sequence:
+            - service: climate.set_hvac_mode
+              target:
+                entity_id: "{{ repeat.item }}"
+              data:
+                hvac_mode: "off"
+    else:
+      - repeat:
+          for_each: !input thermostats
+          sequence:
+            - service: climate.set_hvac_mode
+              target:
+                entity_id: "{{ repeat.item }}"
+              data:
+                hvac_mode: "heat"
