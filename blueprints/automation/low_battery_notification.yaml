@@ -1,0 +1,65 @@
+blueprint:
+  name: Low battery notification
+  description: >
+    Sends a daily notification listing all devices with battery below a
+    threshold. Repeats every day until the battery is replaced.
+    New devices are picked up automatically without reconfiguration.
+  domain: automation
+  input:
+    notify_target:
+      name: Notification target
+      description: >
+        The notify service to use, e.g. "notify.mobile_app_my_phone".
+        Find yours under Developer Tools → Services → notify.
+      selector:
+        text:
+    battery_threshold:
+      name: Battery threshold (%)
+      description: Devices below this level will trigger a notification.
+      default: 20
+      selector:
+        number:
+          min: 5
+          max: 50
+          step: 5
+          unit_of_measurement: "%"
+    notification_time:
+      name: Time to send notification
+      description: What time of day to check and notify.
+      default: "09:00:00"
+      selector:
+        time:
+
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/low_battery_notification.yaml
+
+mode: single
+
+trigger:
+  - platform: time
+    at: !input notification_time
+
+variables:
+  threshold: !input battery_threshold
+  low_battery_devices: >
+    {% set ns = namespace(devices=[]) %}
+    {% for state in states.sensor
+       if state.attributes.device_class == 'battery'
+       and state.state | int(-1) >= 0
+       and state.state | int < threshold %}
+      {% set ns.devices = ns.devices + [
+        state.attributes.friendly_name ~ ' (' ~ state.state ~ '%)'
+      ] %}
+    {% endfor %}
+    {{ ns.devices }}
+
+condition:
+  - condition: template
+    value_template: "{{ low_battery_devices | length > 0 }}"
+
+action:
+  - service: !input notify_target
+    data:
+      title: "Low battery warning"
+      message: >
+        The following devices are running low on battery:
+        {{ low_battery_devices | join(', ') }}
