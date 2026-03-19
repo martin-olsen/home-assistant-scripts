@@ -1,13 +1,19 @@
 blueprint:
   name: Danfoss Ally - door/window integration
   description: >
-    Turns off a Danfoss Ally thermostat when a door or window opens, and turns
-    it back on (heat mode) when it closes — but only if the main heating switch
-    is on.
+    Signals the Danfoss Ally thermostat that a window or door is open/closed
+    using the native `window_open_external` property. When open, heating demand
+    is suppressed by the thermostat itself. When closed (and main heating is on),
+    the window-open signal is cleared so normal heating resumes.
 
-    Unlike the generic thermostat blueprint this uses `climate.set_hvac_mode`
-    with explicit `off` / `heat` modes, because `climate.turn_on` is not
-    supported by the Danfoss Ally integration.
+    The Danfoss Ally (014G2461) only supports `system_mode: heat` — it has no
+    off mode — so the correct integration point is the `window_open_external`
+    switch that Zigbee2MQTT exposes for each thermostat. In Home Assistant this
+    appears as a switch entity named e.g.
+    `switch.room_thermostat_window_open_external`.
+
+    You must also enable the window open feature on the thermostat itself
+    (via the Zigbee2MQTT device page) for this to take effect.
   domain: automation
   input:
     binary_input_sensor:
@@ -20,14 +26,18 @@ blueprint:
           device_class:
           - door
           - window
-    thermostats:
-      name: Danfoss Ally thermostats
-      description: One or more Danfoss Ally climate entities to control.
+    window_open_switches:
+      name: Danfoss Ally window_open_external switches
+      description: >
+        Select the `window_open_external` switch entity for each Danfoss Ally
+        thermostat you want to control. In Home Assistant these are created by
+        Zigbee2MQTT and are typically named
+        `switch.<thermostat_name>_window_open_external`.
       selector:
         entity:
           multiple: true
           domain:
-          - climate
+          - switch
     heating_main_switch:
       name: Main heating switch
       description: input_boolean that enables/disables heating globally.
@@ -58,19 +68,15 @@ action:
         state: "on"
     then:
       - repeat:
-          for_each: !input thermostats
+          for_each: !input window_open_switches
           sequence:
-            - service: climate.set_hvac_mode
+            - service: switch.turn_on
               target:
                 entity_id: "{{ repeat.item }}"
-              data:
-                hvac_mode: "off"
     else:
       - repeat:
-          for_each: !input thermostats
+          for_each: !input window_open_switches
           sequence:
-            - service: climate.set_hvac_mode
+            - service: switch.turn_off
               target:
                 entity_id: "{{ repeat.item }}"
-              data:
-                hvac_mode: "heat"
