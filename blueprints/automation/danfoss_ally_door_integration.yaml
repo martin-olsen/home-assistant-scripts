@@ -1,0 +1,82 @@
+blueprint:
+  name: Danfoss Ally - door/window integration
+  description: >
+    Signals the Danfoss Ally thermostat that a window or door is open/closed
+    using the native `window_open_external` property. When open, heating demand
+    is suppressed by the thermostat itself. When closed (and main heating is on),
+    the window-open signal is cleared so normal heating resumes.
+
+    The Danfoss Ally (014G2461) only supports `system_mode: heat` — it has no
+    off mode — so the correct integration point is the `window_open_external`
+    switch that Zigbee2MQTT exposes for each thermostat. In Home Assistant this
+    appears as a switch entity named e.g.
+    `switch.room_thermostat_window_open_external`.
+
+    You must also enable the window open feature on the thermostat itself
+    (via the Zigbee2MQTT device page) for this to take effect.
+  domain: automation
+  input:
+    binary_input_sensor:
+      name: Door/window sensor
+      description: The door or window sensor that controls heating.
+      selector:
+        entity:
+          domain:
+          - binary_sensor
+          device_class:
+          - door
+          - window
+    window_open_switches:
+      name: Danfoss Ally window_open_external switches
+      description: >
+        Select the `window_open_external` switch entity for each Danfoss Ally
+        thermostat you want to control. In Home Assistant these are created by
+        Zigbee2MQTT and are typically named
+        `switch.<thermostat_name>_window_open_external`.
+      selector:
+        entity:
+          multiple: true
+          domain:
+          - switch
+    heating_main_switch:
+      name: Main heating switch
+      description: input_boolean that enables/disables heating globally.
+      selector:
+        entity:
+          domain:
+          - input_boolean
+          multiple: false
+
+  source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/danfoss_ally_door_integration.yaml
+
+mode: queued
+
+trigger:
+  - platform: state
+    entity_id: !input binary_input_sensor
+
+condition:
+  - condition: state
+    entity_id: !input heating_main_switch
+    state: "on"
+
+action:
+  - if:
+      - alias: door/window is open
+        condition: state
+        entity_id: !input binary_input_sensor
+        state: "on"
+    then:
+      - repeat:
+          for_each: !input window_open_switches
+          sequence:
+            - service: switch.turn_on
+              target:
+                entity_id: "{{ repeat.item }}"
+    else:
+      - repeat:
+          for_each: !input window_open_switches
+          sequence:
+            - service: switch.turn_off
+              target:
+                entity_id: "{{ repeat.item }}"
