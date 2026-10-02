@@ -1,6 +1,8 @@
 blueprint:
   name: thermo door/window integration
-  description: turns off heating when a door opens. Turns it on again when it closes
+  description: >
+    Turns off heating when a door or window has been open for the configured
+    delay. Turns it on again when it closes.
   domain: automation
   input:
     binary_input_sensor:
@@ -23,11 +25,23 @@ blueprint:
     heating_main_switch:
       name: Main switch for heating
       description: input boolean to turn heating on or off
-      selector: 
+      selector:
         entity:
           domain:
           - input_boolean
           multiple: false
+    open_delay:
+      name: Delay before turning off
+      description: >
+        How long the door/window must stay open before the thermostats are
+        turned off. If it closes again within this time, nothing is turned off.
+        Set to 0 to turn off immediately.
+      default:
+        hours: 0
+        minutes: 0
+        seconds: 0
+      selector:
+        duration: {}
 
   source_url: https://github.com/martin-olsen/home-assistant-scripts/blob/main/blueprints/automation/thermo_door_integration.yaml
 
@@ -35,17 +49,23 @@ mode: queued
 
 trigger:
 - platform: state
+  id: opened
   entity_id: !input binary_input_sensor
-condition: 
+  to: "on"
+  for: !input open_delay
+- platform: state
+  id: closed
+  entity_id: !input binary_input_sensor
+  to: "off"
+condition:
 - condition: state
   entity_id: !input heating_main_switch
   state: "on"
 action:
-  - if: 
-      - alias: door is open
-        condition: state
-        entity_id: !input binary_input_sensor
-        state: "on"
+  - if:
+      - alias: door has been open for the configured delay
+        condition: trigger
+        id: opened
     then:
       repeat:
         for_each: !input thermostats
@@ -53,11 +73,10 @@ action:
         - service: climate.turn_off
           target:
             entity_id: '{{ repeat.item }}'
-    else: 
+    else:
       repeat:
         for_each: !input thermostats
         sequence:
         - service: climate.turn_on
           target:
             entity_id: '{{ repeat.item }}'
-            
