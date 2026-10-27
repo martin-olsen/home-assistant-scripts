@@ -11,19 +11,18 @@ input_boolean:
     name: Varme on/off
 
 input_number:
+  # No "initial:" - omitting it lets HA restore the last value after a restart.
   tv_stue_temp:
     name: TV Stue temp
-    initial: 19
-    min: 18
+    min: 17
     max: 28
     step: 0.5
 
   spisestue_temp:
-      name: Spisestue temp
-      initial: 22
-      min: 18
-      max: 28
-      step: 0.5
+    name: Spisestue temp
+    min: 18
+    max: 28
+    step: 0.5
 
 
 automation: !include automations.yaml
