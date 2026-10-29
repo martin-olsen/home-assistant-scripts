@@ -10,20 +10,6 @@ input_boolean:
   varme:
     name: Varme on/off
 
-input_number:
-  # No "initial:" - omitting it lets HA restore the last value after a restart.
-  tv_stue_temp:
-    name: TV Stue temp
-    min: 17
-    max: 28
-    step: 0.5
-
-  spisestue_temp:
-    name: Spisestue temp
-    min: 18
-    max: 28
-    step: 0.5
-
 # Virtual thermostats holding the wanted temperature for the calibrated Eve thermos
 # (used as "Wanted temperature" in eve_thermo_single_room_calibration), so it can be
 # set from HomeKit. The target is published retained and read back from the same
