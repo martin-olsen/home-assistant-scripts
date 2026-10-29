@@ -22,11 +22,12 @@ blueprint:
           - climate
     wanted_temp_input:
       name: Wanted temperature
-      description: Temperature input for wanted temperature.
+      description: Temperature input for wanted temperature. An input_number, or a climate entity whose target temperature is used.
       selector:
         entity:
           domain:
           - input_number
+          - climate
           multiple: false
     offset_input:
       name: thermo offset
@@ -62,7 +63,7 @@ action:
     room_temp_id: !input room_temp_sensor
     room_temp: '{{ states(room_temp_id) | float }}'
     wanted_temp_id: !input wanted_temp_input
-    wanted_temp: '{{ states(wanted_temp_id) | float }}'
+    wanted_temp: '{{ (state_attr(wanted_temp_id, ''temperature'') if wanted_temp_id.startswith(''climate.'') else states(wanted_temp_id)) | float }}'
     calibrated_temp: '{{ (((wanted_temp + thermo_measured_temp - room_temp) * 2) | round(0)) / 2 }}'
     offset: !input offset_input
 
