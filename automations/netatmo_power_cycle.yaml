@@ -1,0 +1,63 @@
+# Netatmo weather station loses its connection from time to time and a reboot fixes it.
+# It is powered from an IKEA Tretakt plug (netatmo_plug) in Zigbee2MQTT, so power can be
+# cut automatically. Deployed via the Home Assistant config API with id netatmo_power_cycle;
+# paste into automations.yaml or the automation YAML editor to recreate it.
+- id: netatmo_power_cycle
+  alias: Netatmo weather station power cycle
+  description: >
+    When the Netatmo weather station has lost connection for 5 minutes, cut
+    power on netatmo_plug for 2 minutes. Retries once, then notifies.
+  mode: single
+  max_exceeded: silent
+  triggers:
+    - trigger: state
+      entity_id: binary_sensor.weather_station_forbindelse
+      to:
+        - "off"
+        - unavailable
+        - unknown
+      for:
+        minutes: 5
+  conditions:
+    - alias: The plug itself must be reachable
+      condition: not
+      conditions:
+        - condition: state
+          entity_id: switch.0x983268fffed8272a
+          state:
+            - unavailable
+            - unknown
+  actions:
+    - repeat:
+        sequence:
+          - action: switch.turn_off
+            target:
+              entity_id: switch.0x983268fffed8272a
+          - delay:
+              minutes: 2
+          - action: switch.turn_on
+            target:
+              entity_id: switch.0x983268fffed8272a
+          # Netatmo is polled from the cloud roughly every 10 minutes, so give it time
+          - alias: Wait for the station to report in again
+            wait_template: "{{ is_state('binary_sensor.weather_station_forbindelse', 'on') }}"
+            timeout:
+              minutes: 20
+            continue_on_timeout: true
+        until:
+          - condition: template
+            value_template: >
+              {{ repeat.index >= 2 or
+                 is_state('binary_sensor.weather_station_forbindelse', 'on') }}
+    - if:
+        - condition: not
+          conditions:
+            - condition: state
+              entity_id: binary_sensor.weather_station_forbindelse
+              state: "on"
+      then:
+        - action: persistent_notification.create
+          data:
+            title: Netatmo weather station offline
+            message: The weather station is still offline after two power cycles of netatmo_plug.
+            notification_id: netatmo_power_cycle_failed
