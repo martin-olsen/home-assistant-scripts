@@ -10,20 +10,95 @@ input_boolean:
   varme:
     name: Varme on/off
 
-input_number:
-  tv_stue_temp:
-    name: TV Stue temp
-    initial: 19
-    min: 18
-    max: 28
-    step: 0.5
+# Virtual thermostats holding the wanted temperature for the calibrated Eve thermos
+# (used as "Wanted temperature" in eve_thermo_single_room_calibration), so it can be
+# set from HomeKit. The target is published retained and read back from the same
+# topic, so Mosquitto keeps it across restarts. Current temperature comes straight
+# from the room's Aqara sensor in Zigbee2MQTT.
+mqtt:
+  climate:
+    - name: TV Stue termostat
+      unique_id: virtual_thermostat_tv_stue
+      modes: ["heat"]
+      mode_state_topic: virtual_thermostat/tv_stue/target
+      mode_state_template: "heat"
+      temperature_command_topic: virtual_thermostat/tv_stue/target
+      temperature_state_topic: virtual_thermostat/tv_stue/target
+      current_temperature_topic: zigbee2mqtt/0x54ef44100091ad72
+      current_temperature_template: "{{ value_json.temperature }}"
+      retain: true
+      min_temp: 17
+      max_temp: 28
+      temp_step: 0.5
+      precision: 0.1
 
-  spisestue_temp:
-      name: Spisestue temp
-      initial: 22
-      min: 18
-      max: 28
-      step: 0.5
+    - name: Spisestue termostat
+      unique_id: virtual_thermostat_spisestue
+      modes: ["heat"]
+      mode_state_topic: virtual_thermostat/spisestue/target
+      mode_state_template: "heat"
+      temperature_command_topic: virtual_thermostat/spisestue/target
+      temperature_state_topic: virtual_thermostat/spisestue/target
+      current_temperature_topic: zigbee2mqtt/0x54ef44100091ab0c
+      current_temperature_template: "{{ value_json.temperature }}"
+      retain: true
+      min_temp: 18
+      max_temp: 28
+      temp_step: 0.5
+      precision: 0.1
+
+# HomeKit bridge. Only explicitly listed entities are exposed. The calibrated Eve
+# thermos are left out on purpose - their target is set via the MQTT thermostats above.
+# Names here only affect HomeKit. Changes need a Home Assistant restart.
+homekit:
+  - name: HA Bridge
+    port: 21066
+    filter:
+      include_entities:
+        # Thermostats
+        - climate.0x28dba7fffeedb29a
+        - climate.0x28dba7fffeeeb7b1
+        - climate.0x38398ffffe46d20c
+        - climate.0x38398ffffe46ff63
+        - climate.0xb0c7defffe213d6d
+        - climate.bad_1_eve_thermo_gulv_2
+        - climate.eve_thermo_20ebp1701
+        - climate.eve_thermo_room_1_2
+        - climate.master_bed_bathroom_danfoss
+        - climate.tv_stue_termostat
+        - climate.spisestue_termostat
+        # Lights
+        - light.0x0017880103020bd9
+        - light.0x001788010322ea0f
+        - light.0x001788010323cc2d
+        - light.entre1
+        - light.entre2
+        - light.ikea_lampe
+        - light.lifx_a19_23a1ee
+        - light.roomhalllight
+        # 3D printer
+        - switch.3d_printer_socket
+    entity_config:
+      climate.0x28dba7fffeedb29a:
+        name: Room 1 radiator
+      climate.0x28dba7fffeeeb7b1:
+        name: Anna radiator
+      climate.0x38398ffffe46d20c:
+        name: Albert radiator
+      climate.0x38398ffffe46ff63:
+        name: Master Bedroom radiator
+      climate.0xb0c7defffe213d6d:
+        name: Køkken radiator
+      climate.bad_1_eve_thermo_gulv_2:
+        name: Bad 1 gulvvarme
+      climate.eve_thermo_20ebp1701:
+        name: Entre radiator
+      climate.eve_thermo_room_1_2:
+        name: Entre gulvvarme
+      climate.master_bed_bathroom_danfoss:
+        name: Bad MB radiator
+      switch.3d_printer_socket:
+        name: 3D printer stik
 
 
 automation: !include automations.yaml
